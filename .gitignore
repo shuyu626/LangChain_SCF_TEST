@@ -1,0 +1,19 @@
+# Python bytecode/cache
+__pycache__/
+*.py[cod]
+*.pyo
+chains/__pycache__/
+
+# Virtual environment
+venv/
+
+# Environment variables / secrets
+.env
+
+# Ignore all .db files (e.g., SQLite, FAISS, Chroma)
+*.db
+
+# macOS and Windows system files
+.DS_Store
+Thumbs.db
+
