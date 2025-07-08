@@ -9,8 +9,6 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.output_parsers.string import StrOutputParser
 from langchain_core.prompts.chat import ChatPromptTemplate
 from langchain_core.runnables.passthrough import RunnablePassthrough
-# from langchain.tools.retriever import create_retriever_tool
-# from langchain_core.tools.simple import Tool
 from langchain.agents import (
     AgentExecutor, create_openai_tools_agent
 )
@@ -19,6 +17,7 @@ from langchain.tools import StructuredTool
 from langchain_core.prompts.chat import MessagesPlaceholder
 from pydantic import BaseModel
 from chains.tools_api import fa_list_tool
+from prompts.agent_prompt import agent_prompt
 class SCFQAInput(BaseModel):
     question: str
     role: str
@@ -126,46 +125,25 @@ chain = (
 
 # 工具
 def scf_qa_chain_run(query: str) -> str:
-  return chain.invoke(query)
+    return chain.invoke(query)
 
 def scf_qa_chain_run_stream(question: str, role: str, token: str) -> str:
-  print(input)
-  response = ""
-  for chunk in chain.stream({"question": question, "role": role, "token":token}):
-    response += chunk
-  return response
+    print(input)
+    response = ""
+    for chunk in chain.stream({"question": question, "role": role, "token":token}):
+        response += chunk
+    return response
 
 qa_tool = StructuredTool.from_function(
     func=scf_qa_chain_run_stream,
     name="SCF_QA",
     description=(
-      "回答使用者關於 SCF 平台操作流程的問題，例如：如何修改密碼？"
-      "如何送出申請？權限有哪些？"
-      "請在你判斷與 SCF 操作流程相關時使用這個工具"
-  ),
+    "回答使用者關於 SCF 平台操作流程的問題，例如：如何修改密碼？"
+    "如何送出申請？權限有哪些？"
+    "請在你判斷與 SCF 操作流程相關時使用這個工具"
+    ),
 )
 tools = [qa_tool,fa_list_tool]
-
-agent_prompt = ChatPromptTemplate.from_messages([
-    ("system", "你是 SCF 融資平台助理，請根據使用者角色及問題選擇正確的工具回覆問題"),
-    ("system", "你必須使用 token 權杖來呼叫任何需要授權的工具，token 是：{token}"),
-    ("system", "使用者可能會透過時間的模糊查詢來查詢資料，如果輸入『今天』、『昨天』、『這個月』、『近三個月』、『近半年』等詞，請你依照系統日期轉換成 yyyy-mm-dd 格式的具體日期區間或日期，例如「近半年」轉成「2025-01-07 ~ 2025-07-07」。沒有提及時間點，就是顯示所有時間點"),
-    ("system", "如果使用者提到「所有案件」、「全部案件」、「所有狀態的案件」等字眼，請預設查詢所有狀態的案件，不加案件狀態篩選條件。"),
-    ("system", "若使用者想查詢案件，則列點提供符合條件的案件編號，及顯示共幾筆資料即可"),
-    ("system", 
-      "案件狀態值的表示如下：\n"
-      "- 案件待上傳：000\n"
-      "- 案件待提交：001\n"
-      "- 中心廠審核：010\n"
-      "- 中心廠審核通過：020\n"
-      "- 銀行審核中：110\n"
-      "- 銀行審核通過：120\n"
-      "- 融資退件：140\n"
-      "- 案件更新失敗：902、912、914"
-    ),
-    ("human", "使用者角色是：{role}，問題是：{question}"),
-    MessagesPlaceholder(variable_name="agent_scratchpad")
-])
 agent = create_openai_tools_agent(llm, tools, agent_prompt)
 agent_executor = AgentExecutor(agent=agent, tools=tools,verbose = True)
 
