@@ -16,63 +16,29 @@ class FAListQueryInput(BaseModel):
     creationtimestart: str | None = Field(None, description="建立時間起 (yyyy-mm-dd)")
     creationtimeend: str | None = Field(None, description="建立時間訖 (yyyy-mm-dd)")
 
-
-# def get_fa_list_from_backend(caseNum, invoiceId, caseStatus, creationtimestart, creationtimeend):
-#     try:
-#         params = {
-#             "caseNum": caseNum,
-#             "invoiceId": invoiceId,
-#             "caseStatus": caseStatus,
-#             "creationtimestart": creationtimestart,
-#             "creationtimeend": creationtimeend,
-#         }
-
-#         # 替換成你實際的 API 網址
-#         url = "http://192.168.0.104:8000/scf-api/transactions/fa/list"
-#         response = requests.get(url, params=params)
-
-#         if response.status_code == 200:
-#             data = response.json()
-#             # 你可以自訂格式回給 LLM
-#             if not data:
-#                 return "查無資料"
-#             return f"查詢成功，共 {len(data)} 筆案件。"
-#         else:
-#             return f"API 回傳錯誤，狀態碼：{response.status_code}"
-
-#     except Exception as e:
-#         return f"API 呼叫失敗，錯誤訊息：{str(e)}"
-
 def get_fa_list_from_backend(
-      token: str,
-      caseNum: str = None,
-      invoiceId: str = None,
-      caseStatus: str = None,
-      creationtimestart: str = None,
-      creationtimeend: str = None,
-  ):
-    print(f"Token received: {token}")
+    token: str,
+    caseNum: str = None,
+    invoiceId: str = None,
+    caseStatus: str = None,
+    creationtimestart: str = None,
+    creationtimeend: str = None,
+):
     try:
         params = {
             k: v for k, v in {
-              "caseNum": caseNum,
-              "invoiceId": invoiceId,
-              "caseStatus": caseStatus,
-              "creationtimestart": creationtimestart,
-              "creationtimeend": creationtimeend
-          }.items() if v is not None
-        }
+            "caseNum": caseNum,
+            "invoiceId": invoiceId,
+            "caseStatus": caseStatus,
+            "creationtimestart": creationtimestart,
+            "creationtimeend": creationtimeend
+        }.items() if v is not None
+    }
 
         url = "http://192.168.0.104:8000/scf-api/transactions/fa/list"
         response = authorized_get(url, token=token, params=params)
-        print("回應",response)
-        print(params)
-        pprint(response.json())
         if response.status_code == 200:
             data = response.json()
-            # if not data:
-            #     return "查無資料"
-            # return f"查詢成功，共 {len(data)} 筆案件。"
             if data.get("payload") and data["payload"].get("data"):
                 real_data = data["payload"]["data"]
                 if not real_data:
@@ -87,7 +53,7 @@ def get_fa_list_from_backend(
         return f"API 呼叫失敗，錯誤訊息：{str(e)}"
 fa_list_tool = StructuredTool.from_function(
     name="get_fa_list",
-      description=(
+    description=(
         "用於查詢案件清單，根據使用者提供的條件：案件編號(caseNum)、"
         "發票號碼(invoiceId)、案件狀態(caseStatus)、以及建立日期區間(creationtimestart, creationtimeend)，"
         "時間格式為 yyyy-mm-dd，或使用者會提到今天、昨天、這個月、近半年、近三個月等時間字眼"

@@ -9,17 +9,22 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.output_parsers.string import StrOutputParser
 from langchain_core.prompts.chat import ChatPromptTemplate
 from langchain_core.runnables.passthrough import RunnablePassthrough
+from langchain_core.chat_history import BaseChatMessageHistory
+from langchain_community.chat_message_histories import ChatMessageHistory
+from langchain_core.messages import BaseMessage, AIMessage
+from pydantic import BaseModel, Field
 from langchain.agents import (
     AgentExecutor, create_openai_tools_agent
 )
+from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain.tools import StructuredTool
-
+from langchain_community.chat_models import ChatOllama
 from langchain_core.prompts.chat import MessagesPlaceholder
 from pydantic import BaseModel
 from chains.tools_api import fa_list_tool
 from prompts.agent_prompt import agent_prompt
 class SCFQAInput(BaseModel):
-    question: str
+    input: str
     role: str
     token: str
 # 載入 .env 檔
@@ -35,6 +40,10 @@ if not api_key:
 os.environ["GOOGLE_API_KEY"] = api_key
 
 llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash")
+# llm = ChatOllama(
+#     model="gemma3:12b",  # 模型名稱
+#     base_url="http://192.168.2.255:11434",  # 你提供的 IP 和 port
+# )
 
 
 # 嵌入模型
@@ -79,7 +88,7 @@ template = """
 你是一位專業的【融資平台問答助理】。
 
 
-使用者角色是{role}
+使用者角色是{role}，若{role}為 'Bank'，代表角色是'銀行';'Buyer' 代表'中心廠';'Supplier' 代表'供應商'
 
 請根據下列文件內容，先判斷使用者角色，並結合自身判斷，以條理清晰、正式的方式回應用戶問題：
 - 使用繁體中文作答
@@ -94,7 +103,7 @@ template = """
 {context}
 
 [問題]
-{question}
+{input}
 """
 qa_prompt = ChatPromptTemplate.from_template(template)
 
@@ -107,47 +116,51 @@ retriever = new_db.as_retriever(
 
 # retriever 只接受一個字串 query，不接受 dict
 def retriever_func(inputs):
-    question = inputs["question"]
-    return retriever.get_relevant_documents(question)
+    input = inputs["input"]
+    return retriever.get_relevant_documents(input)
 chain = (
-    {"context": retriever_func, "question": RunnablePassthrough(),"role": RunnablePassthrough()}
+    {"context": retriever_func, "input": RunnablePassthrough(),"role": RunnablePassthrough()}
     | qa_prompt
     | llm
     | str_parser
 )
-# response = chain.invoke("哪裡修改密碼")
-# print(response)
-
-# 串流
-# for chunk in chain.stream("有哪些權限"):
-#     print(chunk, end="", flush=True)
-
 
 # 工具
 def scf_qa_chain_run(query: str) -> str:
-    return chain.invoke(query)
+  return chain.invoke(query)
 
-def scf_qa_chain_run_stream(question: str, role: str, token: str) -> str:
-    print(input)
-    response = ""
-    for chunk in chain.stream({"question": question, "role": role, "token":token}):
-        response += chunk
-    return response
+def scf_qa_chain_run_stream(input: str, role: str, token: str) -> str:
+  print(input)
+  response = ""
+  for chunk in chain.stream({"input": input, "role": role, "token":token}):
+    response += chunk
+  return response
 
 qa_tool = StructuredTool.from_function(
     func=scf_qa_chain_run_stream,
     name="SCF_QA",
     description=(
-    "回答使用者關於 SCF 平台操作流程的問題，例如：如何修改密碼？"
-    "如何送出申請？權限有哪些？"
-    "請在你判斷與 SCF 操作流程相關時使用這個工具"
-    ),
+      "回答使用者關於 SCF 平台操作流程的問題"
+      "例如：如何修改密碼？如何審核案件？如何上傳案件？案件流程？如何送出申請？權限有哪些？"
+      "請在你判斷與 SCF 操作流程相關時使用這個工具"
+  ),
 )
 tools = [qa_tool,fa_list_tool]
+
+store = {}
+
+# 根據 session_id 建立或取得對應的對話歷史記錄（記憶）
+def get_session_history(session_id: str) -> BaseChatMessageHistory:
+    if session_id not in store:
+        store[session_id] = ChatMessageHistory()
+    return store[session_id]
+
 agent = create_openai_tools_agent(llm, tools, agent_prompt)
 agent_executor = AgentExecutor(agent=agent, tools=tools,verbose = True)
-
-# response = agent_executor.invoke({
-#     "input": "怎麼修改密碼"
-# })
-# print(response['output'])
+# 建立有記憶能力的 Agent Chain
+agent_with_chat_history = RunnableWithMessageHistory(
+    agent_executor,
+    get_session_history,
+    input_messages_key="input",
+    history_messages_key="chat_history",
+)
