@@ -11,15 +11,13 @@ from langchain_core.prompts.chat import ChatPromptTemplate
 from langchain_core.runnables.passthrough import RunnablePassthrough
 from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_community.chat_message_histories import ChatMessageHistory
-from langchain_core.messages import BaseMessage, AIMessage
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from langchain.agents import (
     AgentExecutor, create_openai_tools_agent
 )
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain.tools import StructuredTool
 from langchain_community.chat_models import ChatOllama
-from langchain_core.prompts.chat import MessagesPlaceholder
 from pydantic import BaseModel
 from chains.tools_api import fa_list_tool
 from prompts.agent_prompt import agent_prompt

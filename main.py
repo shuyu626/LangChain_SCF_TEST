@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI
 from pydantic import BaseModel
 from chains.qa_chain import agent_executor  # 匯入你寫好的 function
-
+from chains.qa_chain import agent_with_chat_history
 # 初始化一個 FastAPI 應用實例
 app = FastAPI()
 
@@ -29,10 +29,8 @@ class QueryResponse(BaseModel):
 # 定義一個 POST API 路由 "/ask"，接收用戶的問題並回應答案
 @app.post("/ask", response_model=QueryResponse)
 async def ask_question(request: QueryRequest):
-    # 呼叫你自定義的 agent_executor，將問題送進去處理
-    response = agent_executor.invoke({"question": request.question,"role":request.role,"token":request.token})
-    print(request)
-    # print(response)
+    response = agent_with_chat_history.invoke({"input": request.question,"role":request.role,"token":request.token},
+    config={"configurable": {"session_id": "user1"}})
     
     # 將處理好的結果包裝成 QueryResponse 回傳
     return QueryResponse(answer=response)
