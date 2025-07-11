@@ -21,10 +21,12 @@ from langchain_community.chat_models import ChatOllama
 from pydantic import BaseModel
 from chains.tools_api import fa_list_tool
 from prompts.agent_prompt import agent_prompt
+from prompts.qa_fewshot_prompt import few_shot_prompt
 class SCFQAInput(BaseModel):
     input: str
     role: str
     token: str
+    session_id: str
 # 載入 .env 檔
 load_dotenv()
 
@@ -42,7 +44,10 @@ llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash")
 #     model="gemma3:12b",  # 模型名稱
 #     base_url="http://192.168.2.255:11434",  # 你提供的 IP 和 port
 # )
-
+# llm = ChatOllama(
+#     model="deepseek-r1:14b",  # 模型名稱
+#     base_url="http://59.126.229.182:11434",  # 你提供的 IP 和 port
+# )
 
 # 嵌入模型
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
@@ -81,20 +86,44 @@ new_db = FAISS.load_local(
     allow_dangerous_deserialization=True  # 若遇 pickle 載入警告需加上
 )
 
+
 str_parser = StrOutputParser()
-template = """
+system_template = """
 你是一位專業的【融資平台問答助理】。
 
+【重要指示】
+- 請嚴格按照以下格式和標準回應，確保每次回應的一致性
+- 先參考回覆的示範，並僅回應文字
+- 使用者角色是 {role}，若 {role} 為 'Bank'，代表角色是'銀行'; 'Buyer' 代表'中心廠'; 'Supplier' 代表'供應商'
 
-使用者角色是{role}，若{role}為 'Bank'，代表角色是'銀行';'Buyer' 代表'中心廠';'Supplier' 代表'供應商'
+【回應規則】
+1. 角色限制：所有回答僅針對 {role} 角色可執行的操作或權限，不可提及其他角色的流程或操作，若該角色無權限，請回應您並無相關操作權限
+2. 語言：使用繁體中文作答
+3. 格式：純文字格式，禁止使用任何 Markdown 語法（例如 **、*、`、-、> 等符號）。
+4. 結構：
+- 步驟說明：使用數字條列 (1. 2. 3.)
+- 功能列舉：使用圓點符號 (•)
+- 每個步驟或功能點應簡潔明確
+5. 內容準確性：回覆內容務必與文件內容一致，若文件中未提及，請明確說「抱歉，您所提的問題可能與 SCF 平台無關，或您目前角色無相關操作權限。」
 
-請根據下列文件內容，先判斷使用者角色，並結合自身判斷，以條理清晰、正式的方式回應用戶問題：
-- 使用繁體中文作答
-- 如果有提供角色，所有回答僅針對該角色可執行的操作或權限，不可提及其他角色的流程或操作
-- 請務必以純文字格式回覆，禁止使用任何 Markdown 語法（例如 **、*、`、-、> 等符號）。
-- 若內容為步驟，請使用條列式，盡量簡潔明確;若內容為資訊列舉（功能/權限/可執行項），則使用圓點（•）
-- 回覆內容務必與下列文件內容一致，若文件中未提及，請明確說「文件中未提及」
-- 若問題與融資平台無關，請回覆：
+【標準回應格式範例】
+問題類型：操作流程
+格式：
+請依以下步驟進行：
+1. 第一步驟
+2. 第二步驟
+3. 第三步驟
+
+問題類型：權限/功能查詢
+格式：
+{role}角色權限包括：
+• 功能一
+• 功能二
+• 功能三
+
+
+【非相關問題標準回應】
+若問題與融資平台無關，請回覆：
 「很抱歉，我只能回答有關 融資平台 相關的問題。如果您有任何關於融資平台的問題，歡迎隨時提問！」
 
 [文件內容]
@@ -103,8 +132,13 @@ template = """
 [問題]
 {input}
 """
-qa_prompt = ChatPromptTemplate.from_template(template)
 
+# qa_prompt = ChatPromptTemplate.from_template(system_template)
+qa_prompt = ChatPromptTemplate.from_messages([
+    ("system", system_template),
+    *few_shot_prompt.format_messages(),
+    ("human", "使用者角色是 {role}，問題是：{input}")
+])
 
 # 建立檢索器
 retriever = new_db.as_retriever(
@@ -125,23 +159,24 @@ chain = (
 
 # 工具
 def scf_qa_chain_run(query: str) -> str:
-  return chain.invoke(query)
+    return chain.invoke(query)
 
-def scf_qa_chain_run_stream(input: str, role: str, token: str) -> str:
-  print(input)
-  response = ""
-  for chunk in chain.stream({"input": input, "role": role, "token":token}):
-    response += chunk
-  return response
+def scf_qa_chain_run_stream(input: str, role: str, token: str, session_id: str) -> str:
+    response = ""
+    
+    for chunk in chain.stream({"input": input, "role": role, "token":token, "session_id":session_id}):
+        response += chunk
+    
+    return response
 
 qa_tool = StructuredTool.from_function(
     func=scf_qa_chain_run_stream,
     name="SCF_QA",
     description=(
-      "回答使用者關於 SCF 平台操作流程的問題"
-      "例如：如何修改密碼？如何審核案件？如何上傳案件？案件流程？如何送出申請？權限有哪些？"
-      "請在你判斷與 SCF 操作流程相關時使用這個工具"
-  ),
+        "回答使用者關於 SCF 平台操作流程的問題"
+        "例如：如何修改密碼？如何審核案件？如何上傳案件？案件流程？如何送出申請？權限有哪些？"
+        "請在你判斷與 SCF 操作流程相關時使用這個工具"
+    ),
 )
 tools = [qa_tool,fa_list_tool]
 
@@ -152,6 +187,24 @@ def get_session_history(session_id: str) -> BaseChatMessageHistory:
     if session_id not in store:
         store[session_id] = ChatMessageHistory()
     return store[session_id]
+
+def print_session_history(session_id: str):
+    if session_id in store:
+        print(f"📚 Session: {session_id} 記憶內容如下：")
+        for i, msg in enumerate(store[session_id].messages):
+            print(f"{i+1}. [{msg.type}] {msg.content}")
+    else:
+        print(f"❌ 查無 session：{session_id}")
+
+
+
+# 清除歷史紀錄
+def clear_session_history(session_id: str):
+    if session_id in store:
+        del store[session_id]
+        print(f"✅ Session '{session_id}' 的記憶已被清除。")
+    else:
+        print(f"⚠️ 找不到 session '{session_id}'，無需清除。")
 
 agent = create_openai_tools_agent(llm, tools, agent_prompt)
 agent_executor = AgentExecutor(agent=agent, tools=tools,verbose = True)

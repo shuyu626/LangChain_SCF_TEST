@@ -1,9 +1,12 @@
 # backend/main.py
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI
+from fastapi import Query
 from pydantic import BaseModel
 from chains.qa_chain import agent_executor  # 匯入你寫好的 function
 from chains.qa_chain import agent_with_chat_history
+from chains.qa_chain import clear_session_history
+from chains.qa_chain import print_session_history
 # 初始化一個 FastAPI 應用實例
 app = FastAPI()
 
@@ -21,6 +24,7 @@ class QueryRequest(BaseModel):
     question: str
     role:str
     token: str
+    session_id: str
 
 # 定義回傳給用戶端的資料結構，回應是一個字典格式的「answer」
 class QueryResponse(BaseModel):
@@ -29,8 +33,12 @@ class QueryResponse(BaseModel):
 # 定義一個 POST API 路由 "/ask"，接收用戶的問題並回應答案
 @app.post("/ask", response_model=QueryResponse)
 async def ask_question(request: QueryRequest):
-    response = agent_with_chat_history.invoke({"input": request.question,"role":request.role,"token":request.token},
-    config={"configurable": {"session_id": "user1"}})
-    
-    # 將處理好的結果包裝成 QueryResponse 回傳
+    response = agent_with_chat_history.invoke({"input": request.question,"role":request.role,"token":request.token,"session_id":request.session_id},
+    config={"configurable": {"session_id": request.session_id}})
+
     return QueryResponse(answer=response)
+
+@app.delete("/history/clear")
+async def clear_history(session_id: str = Query(...)):
+    clear_session_history(session_id)
+    return {"message": f"Session '{session_id}' 的記憶已清除"}
